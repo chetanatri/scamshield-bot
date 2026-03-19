@@ -202,7 +202,13 @@ conv_handler = ConversationHandler(
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("check", check))
 app.add_handler(conv_handler)
-app.add_handler(MessageHandler(filters.TEXT, handle_menu))
+app.add_handler(
+    MessageHandler(
+        filters.TEXT & ~filters.Regex("^(Yes|No)$"),
+        handle_menu
+    )
+)
+
 app.add_handler(ChatMemberHandler(welcome_check, ChatMemberHandler.CHAT_MEMBER))
 
 print("✅ Bot running...")
