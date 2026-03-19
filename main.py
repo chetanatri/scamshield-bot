@@ -8,9 +8,8 @@ from telegram.ext import (
 
 # 🔑 Token
 TOKEN = os.getenv("BOT_TOKEN")
-
 if not TOKEN:
-    raise ValueError("❌ BOT_TOKEN is missing!")
+    raise ValueError("BOT_TOKEN is missing!")
 
 # 🗄️ Database
 conn = sqlite3.connect("scam.db", check_same_thread=False)
@@ -28,6 +27,7 @@ CREATE TABLE IF NOT EXISTS reports (
 """)
 conn.commit()
 
+# States
 USERNAME, SCAM_TYPE = range(2)
 
 # 🚀 Start
@@ -38,7 +38,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["ℹ️ How it Works"]
     ]
     await update.message.reply_text(
-        "👋 Welcome to ScamShield Bot\n\nChoose option 👇",
+        "👋 Welcome to ScamShield Bot\n\nChoose an option 👇",
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
 
@@ -47,22 +47,40 @@ async def check_username(update: Update, context: ContextTypes.DEFAULT_TYPE, use
     cursor.execute("SELECT COUNT(*) FROM reports WHERE username=?", (username,))
     count = cursor.fetchone()[0]
 
-    msg = f"{username} has {count} reports"
+    if count == 0:
+        msg = f"✅ {username} has no reports."
+    elif count <= 2:
+        msg = f"⚠️ {username} has {count} reports (Low Risk)"
+    elif count <= 5:
+        msg = f"⚠️ {username} has {count} reports (Medium Risk)"
+    else:
+        msg = f"🚨 {username} has {count} reports (HIGH RISK)"
+
     await update.message.reply_text(msg)
 
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
         await check_username(update, context, context.args[0])
 
-# 🚨 Report
+# 🚨 Report flow
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Enter username (@abc):")
+    await update.message.reply_text("Enter scammer username (e.g., @abc123):")
     return USERNAME
 
 async def get_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.message.text
+
+    if not username.startswith("@"):
+        await update.message.reply_text("❌ Enter valid @username")
+        return USERNAME
+
     context.user_data["username"] = username
-    await update.message.reply_text("Type scam type:")
+
+    keyboard = [["Job Scam", "Investment Scam"], ["Other"]]
+    await update.message.reply_text(
+        "Select scam type:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    )
     return SCAM_TYPE
 
 async def get_scam_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,33 +90,76 @@ async def get_scam_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (update.effective_user.id, context.user_data["username"], update.message.text)
         )
         conn.commit()
-        await update.message.reply_text("Reported!")
+        await update.message.reply_text("✅ Report submitted", reply_markup=ReplyKeyboardRemove())
     except:
-        await update.message.reply_text("Already reported")
+        await update.message.reply_text("⚠️ You already reported this user", reply_markup=ReplyKeyboardRemove())
+
     return ConversationHandler.END
 
-# 🏁 App
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Cancelled", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+# 📱 Menu handler (FIXED)
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+
+    if text == "🔍 Check User":
+        await update.message.reply_text("Send username like:\n@testuser123")
+
+    elif text == "🚨 Report Scammer":
+        return await report(update, context)
+
+    elif text == "ℹ️ How it Works":
+        await update.message.reply_text(
+            "📌 Users report suspicious accounts.\n"
+            "Check usernames before dealing.\n"
+            "⚠️ More reports = higher risk."
+        )
+
+    elif text.startswith("@"):
+        await check_username(update, context, text)
+
+# 🚨 Group warning
+async def welcome_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.chat_member.new_chat_member.user
+
+    if user.is_bot or not user.username:
+        return
+
+    username = f"@{user.username}"
+    cursor.execute("SELECT COUNT(*) FROM reports WHERE username=?", (username,))
+    count = cursor.fetchone()[0]
+
+    if count > 0:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"⚠️ Warning: {username} reported {count} times"
+        )
+
+# 🏁 App setup
 app = ApplicationBuilder().token(TOKEN).build()
 
-conv = ConversationHandler(
-    entry_points=[CommandHandler("report", report)],
+conv_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler("report", report),
+        MessageHandler(filters.Regex("^🚨 Report Scammer$"), report)
+    ],
     states={
-        USERNAME: [MessageHandler(filters.TEXT, get_username)],
-        SCAM_TYPE: [MessageHandler(filters.TEXT, get_scam_type)],
+        USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_username)],
+        SCAM_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_scam_type)],
     },
-    fallbacks=[]
+    fallbacks=[CommandHandler("cancel", cancel)],
 )
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("check", check))
+
+# IMPORTANT ORDER
 app.add_handler(conv_handler)
-
-# ⬇️ KEEP THIS LAST
 app.add_handler(MessageHandler(filters.TEXT, handle_menu))
+app.add_handler(ChatMemberHandler(welcome_check, ChatMemberHandler.CHAT_MEMBER))
 
-print("✅ Bot started...")
-
-# 🚨 IMPORTANT: Railway requires PORT binding
-PORT = int(os.environ.get("PORT", 8080))
+print("✅ Bot running...")
 
 app.run_polling()
