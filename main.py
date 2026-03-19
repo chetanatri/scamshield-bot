@@ -44,4 +44,4 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # CHECK
-async def check_contact(update: Update, context: ContextTypes.DEFAULT
+async def check_contact(update: Update, context: ContextTypes.DEFAULT)
