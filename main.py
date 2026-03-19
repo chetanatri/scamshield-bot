@@ -91,7 +91,10 @@ conv = ConversationHandler(
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("check", check))
-app.add_handler(conv)
+app.add_handler(conv_handler)
+
+# ⬇️ KEEP THIS LAST
+app.add_handler(MessageHandler(filters.TEXT, handle_menu))
 
 print("✅ Bot started...")
 
