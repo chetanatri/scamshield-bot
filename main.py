@@ -28,20 +28,58 @@ CREATE TABLE IF NOT EXISTS reports (
 conn.commit()
 
 # States
-TYPE, CONTACT, SCAM = range(3)
+TYPE, CONTACT, SCAM, CONTINUE = range(4)
+
+# MAIN MENU
+def main_menu():
+    return ReplyKeyboardMarkup(
+        [
+            ["🔍 Check Contact"],
+            ["🚨 Report Suspicious"],
+            ["ℹ️ How it Works"]
+        ],
+        resize_keyboard=True
+    )
+
+# CONTINUE MENU
+def continue_menu():
+    return ReplyKeyboardMarkup(
+        [["Yes", "No"]],
+        resize_keyboard=True
+    )
 
 # START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ["🔍 Check Contact"],
-        ["🚨 Report Suspicious"],
-        ["ℹ️ How it Works"]
-    ]
     await update.message.reply_text(
-        "👋 ScamShield Bot\n\n"
-        "Check or report suspicious contacts (Telegram, Phone, Instagram)",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        "👋 ScamShield Bot\n\nChoose an option 👇",
+        reply_markup=main_menu()
     )
+
+# ASK CONTINUE
+async def ask_continue(update):
+    await update.message.reply_text(
+        "Do you want to perform another action?",
+        reply_markup=continue_menu()
+    )
+    return CONTINUE
+
+# HANDLE CONTINUE
+async def handle_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+
+    if text == "Yes":
+        await update.message.reply_text(
+            "Choose option 👇",
+            reply_markup=main_menu()
+        )
+        return ConversationHandler.END
+
+    else:
+        await update.message.reply_text(
+            "🙏 Thanks for using ScamShield Bot.\n\nType /start anytime to use again.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ConversationHandler.END
 
 # CHECK
 async def check_contact(update: Update, context: ContextTypes.DEFAULT_TYPE, contact):
@@ -61,10 +99,12 @@ async def check_contact(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
         msg = f"🚨 {contact} has {count} reports (HIGH RISK)\nType: {ctype}"
 
     await update.message.reply_text(msg)
+    return await ask_continue(update)
 
+# COMMAND CHECK
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
-        await check_contact(update, context, context.args[0])
+        return await check_contact(update, context, context.args[0])
 
 # REPORT FLOW
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -77,7 +117,7 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["type"] = update.message.text
-    await update.message.reply_text("Enter contact (e.g., @user or number):")
+    await update.message.reply_text("Enter contact:")
     return CONTACT
 
 async def get_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,7 +145,7 @@ async def save_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("⚠️ Already reported", reply_markup=ReplyKeyboardRemove())
 
-    return ConversationHandler.END
+    return await ask_continue(update)
 
 # MENU
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -119,13 +159,11 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "ℹ️ How it Works":
         await update.message.reply_text(
-            "Users report suspicious contacts.\n"
-            "More reports = higher risk.\n"
-            "Always verify before sending money."
+            "Users report suspicious contacts.\nMore reports = higher risk."
         )
 
     else:
-        await check_contact(update, context, text)
+        return await check_contact(update, context, text)
 
 # GROUP WARNING
 async def welcome_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -156,6 +194,7 @@ conv_handler = ConversationHandler(
         TYPE: [MessageHandler(filters.TEXT, get_type)],
         CONTACT: [MessageHandler(filters.TEXT, get_contact)],
         SCAM: [MessageHandler(filters.TEXT, save_report)],
+        CONTINUE: [MessageHandler(filters.Regex("^(Yes|No)$"), handle_continue)],
     },
     fallbacks=[]
 )
