@@ -27,10 +27,10 @@ CREATE TABLE IF NOT EXISTS reports (
 """)
 conn.commit()
 
-# States
-TYPE, CONTACT, SCAM, CONTINUE = range(4)
+# STATES
+TYPE, CONTACT, SCAM = range(3)
 
-# MAIN MENU
+# MENUS
 def main_menu():
     return ReplyKeyboardMarkup(
         [
@@ -41,7 +41,6 @@ def main_menu():
         resize_keyboard=True
     )
 
-# CONTINUE MENU
 def continue_menu():
     return ReplyKeyboardMarkup(
         [["Yes", "No"]],
@@ -55,31 +54,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu()
     )
 
-# ASK CONTINUE
-async def ask_continue(update):
-    await update.message.reply_text(
-        "Do you want to perform another action?",
-        reply_markup=continue_menu()
-    )
-    return CONTINUE
-
-# HANDLE CONTINUE
-async def handle_continue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# CONTINUE HANDLER (GLOBAL FIX)
+async def continue_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if text == "Yes":
         await update.message.reply_text(
-            "Choose option 👇",
+            "Choose an option 👇",
             reply_markup=main_menu()
         )
-        return ConversationHandler.END
-
-    else:
+    elif text == "No":
         await update.message.reply_text(
-            "🙏 Thanks for using ScamShield Bot.\n\nType /start anytime to use again.",
+            "🙏 Thanks for using ScamShield Bot.\n\nType /start to use again.",
             reply_markup=ReplyKeyboardRemove()
         )
-        return ConversationHandler.END
+
+# ASK CONTINUE
+async def ask_continue(update: Update):
+    await update.message.reply_text(
+        "Do you want to perform another action?",
+        reply_markup=continue_menu()
+    )
 
 # CHECK
 async def check_contact(update: Update, context: ContextTypes.DEFAULT_TYPE, contact):
@@ -99,12 +94,12 @@ async def check_contact(update: Update, context: ContextTypes.DEFAULT_TYPE, cont
         msg = f"🚨 {contact} has {count} reports (HIGH RISK)\nType: {ctype}"
 
     await update.message.reply_text(msg)
-    return await ask_continue(update)
+    await ask_continue(update)
 
 # COMMAND CHECK
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args:
-        return await check_contact(update, context, context.args[0])
+        await check_contact(update, context, context.args[0])
 
 # REPORT FLOW
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,7 +140,8 @@ async def save_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("⚠️ Already reported", reply_markup=ReplyKeyboardRemove())
 
-    return await ask_continue(update)
+    await ask_continue(update)
+    return ConversationHandler.END
 
 # MENU
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -162,8 +158,8 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Users report suspicious contacts.\nMore reports = higher risk."
         )
 
-    else:
-        return await check_contact(update, context, text)
+    elif text.startswith("@") or text.isdigit():
+        await check_contact(update, context, text)
 
 # GROUP WARNING
 async def welcome_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,21 +190,18 @@ conv_handler = ConversationHandler(
         TYPE: [MessageHandler(filters.TEXT, get_type)],
         CONTACT: [MessageHandler(filters.TEXT, get_contact)],
         SCAM: [MessageHandler(filters.TEXT, save_report)],
-        CONTINUE: [MessageHandler(filters.Regex("^(Yes|No)$"), handle_continue)],
     },
     fallbacks=[]
 )
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("check", check))
-app.add_handler(conv_handler)
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.Regex("^(Yes|No)$"),
-        handle_menu
-    )
-)
 
+# 👇 IMPORTANT: CONTINUE HANDLER FIRST
+app.add_handler(MessageHandler(filters.Regex("^(Yes|No)$"), continue_handler))
+
+app.add_handler(conv_handler)
+app.add_handler(MessageHandler(filters.TEXT, handle_menu))
 app.add_handler(ChatMemberHandler(welcome_check, ChatMemberHandler.CHAT_MEMBER))
 
 print("✅ Bot running...")
